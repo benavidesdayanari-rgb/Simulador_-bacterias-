@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador de bacterias: crecimiento y decrecimiento</title>
+<style>
+:root{--azul:#2457d6;--fondo:#eef3fb;--texto:#172033;--borde:#dce2ee}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:var(--fondo);color:var(--texto)}
+header{background:linear-gradient(135deg,#173b91,#4387ee);color:white;text-align:center;padding:24px 16px}
+header h1{margin:0 0 8px;font-size:clamp(1.4rem,4vw,2.1rem)}
+main{max-width:1050px;margin:20px auto;padding:0 14px 28px}
+.card{background:white;border:1px solid var(--borde);border-radius:14px;padding:16px;margin-bottom:15px}
+h2{font-size:1.15rem;margin:0 0 13px}
+.modes,.actions{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}
+button{border:0;border-radius:9px;padding:11px 14px;font-weight:bold;cursor:pointer;background:#e7ecf7;color:var(--texto)}
+button.active,button.primary{background:var(--azul);color:white}
+.controls,.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+label{display:block;font-weight:bold;font-size:.92rem;margin-bottom:6px}
+input{width:100%;padding:10px;border:1px solid #bac5d8;border-radius:8px;font-size:1rem}
+.hint{color:#5b6475;line-height:1.5;font-size:.9rem}
+.stats>div{background:#f5f7fc;border-radius:9px;padding:12px}
+.stats span{display:block;color:#5b6475;font-size:.85rem;margin-bottom:5px}
+.stats strong{font-size:1.25rem}
+#petri{display:block;width:100%;height:auto;max-height:330px;background:#f9fcff;border:1px solid var(--borde);border-radius:12px}
+.chart{width:100%;height:260px;display:block}
+.tablewrap{overflow:auto;max-height:300px}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{padding:9px;border-bottom:1px solid var(--borde);text-align:right}
+th{background:#f2f5fb;position:sticky;top:0}
+th:first-child,td:first-child{text-align:center}
+.formula{padding:12px;background:#eef3ff;border-left:4px solid var(--azul);border-radius:7px;overflow-wrap:anywhere}
+@media(max-width:520px){.card{padding:12px}.chart{height:220px}}
+</style>
+</head>
+<body>
+<header><h1>Simulador de crecimiento y decrecimiento de bacterias</h1><div>Observa la población, la animación, la gráfica y la tabla de valores.</div></header>
+<main>
+<section class="card">
+<h2>1. Escoge el modelo</h2>
+<div class="modes"><button id="growth" class="active">Crecimiento</button><button id="decay">Decrecimiento</button></div>
+<div class="controls">
+<div><label for="p0">Población inicial (P₀)</label><input id="p0" type="number" min="1" max="500" value="12"></div>
+<div><label for="rate">Tasa por periodo (%)</label><input id="rate" type="number" min="0" max="100" value="20"></div>
+<div><label for="duration">Tiempo total (periodos)</label><input id="duration" type="number" min="1" max="20" value="10"></div>
+</div>
+<p class="hint">Cambia los datos y pulsa «Iniciar animación». Cada círculo representa una bacteria ilustrativa; el número de círculos se adapta para que la animación se vea claramente.</p>
+<div class="actions"><button id="start" class="primary">▶ Iniciar animación</button><button id="pause">⏸ Pausar</button><button id="reset">↺ Reiniciar</button></div>
+</section>
+<section class="card"><h2>2. Así se ve la población de bacterias</h2><canvas id="petri" width="900" height="300" aria-label="Animación ilustrativa de bacterias"></canvas><p id="caption" class="hint">Tiempo 0: población inicial.</p></section>
+<section class="card"><h2>3. Modelo matemático</h2><div id="formula" class="formula"></div><p id="explain" class="hint"></p></section>
+<section class="card"><h2>4. Resultados</h2><div class="stats"><div><span>Tiempo actual</span><strong id="nowt">0</strong></div><div><span>Población actual estimada</span><strong id="nowp">12</strong></div><div><span>Población final estimada</span><strong id="finalp">74,31</strong></div></div></section>
+<section class="card"><h2>5. Gráfica de población</h2><canvas id="chart" class="chart" aria-label="Gráfica de población"></canvas><p class="hint">El eje horizontal representa el tiempo y el vertical la cantidad estimada de bacterias.</p></section>
+<section class="card"><h2>6. Tabla de valores</h2><div class="tablewrap"><table><thead><tr><th>Tiempo (t)</th><th>Operación</th><th>Población estimada P(t)</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+<section class="card"><h2>¿Cómo interpretarlo?</h2><p id="interpret" class="hint"></p><p class="hint">Nota: es un modelo matemático educativo. Las bacterias dibujadas son una representación visual, no una imagen microscópica real.</p></section>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);let mode='growth',t=0,timer=null;
+const colors=['#4c79d8','#e06a7a','#54a88a','#9a72d8','#e5a23c','#3da9c2'];
+function params(){let p=Math.max(1,Math.min(500,Number($('p0').value)||12)),r=Math.max(0,Math.min(100,Number($('rate').value)||0))/100,d=Math.max(1,Math.min(20,Math.floor(Number($('duration').value)||10)));return{p,r,d}}
+function val(k,p,r){return mode==='growth'?p*Math.pow(1+r,k):p*Math.pow(1-r,k)}
+function fmt(n){return Number(n).toLocaleString('es-EC',{maximumFractionDigits:2})}
+function bacteria(){
+ const c=$('petri'),x=c.getContext('2d'),w=c.width,h=c.height,{p,r,d}=params(),v=Math.max(0,val(t,p,r));
+ x.clearRect(0,0,w,h);x.fillStyle='#f7fbff';x.fillRect(0,0,w,h);
+ x.strokeStyle='#bed0e8';x.lineWidth=5;x.beginPath();x.ellipse(w/2,h/2,w*.46,h*.43,0,0,Math.PI*2);x.stroke();
+ x.fillStyle='#edf6ff';x.beginPath();x.ellipse(w/2,h/2,w*.455,h*.42,0,0,Math.PI*2);x.fill();
+ // Draw a bounded number of visual bacteria; estimated population is shown separately.
+ let n=Math.max(0,Math.min(90,Math.round(v))),seed=17;
+ for(let i=0;i<n;i++){
+  seed=(seed*9301+49297)%233280;let a=seed/233280*Math.PI*2;
+  seed=(seed*9301+49297)%233280;let rad=Math.sqrt(seed/233280)*Math.min(w*.42,h*.38);
+  let bx=w/2+Math.cos(a)*rad,by=h/2+Math.sin(a)*rad,ang=((i*37+t*13)%180)*Math.PI/180;
+  x.save();x.translate(bx,by);x.rotate(ang);
+  x.strokeStyle=colors[i%colors.length];x.lineWidth=2;
+  x.beginPath();x.moveTo(-8,-5);x.lineTo(-12,-9);x.moveTo(8,5);x.lineTo(12,9);x.stroke();
+  x.fillStyle=colors[i%colors.length];x.beginPath();x.ellipse(0,0,8,4.5,0,0,Math.PI*2);x.fill();
+  x.fillStyle='#ffffff99';x.beginPath();x.ellipse(-2,-1,2.3,1.2,0,0,Math.PI*2);x.fill();x.restore();
+ }
+ $('caption').textContent=`Tiempo ${t} de ${d} periodos • Población estimada: ${fmt(v)} bacterias. Se dibujan hasta 90 círculos para representar la población.`;
+}
+function chart(){
+ const c=$('chart'),rect=c.getBoundingClientRect(),dpr=window.devicePixelRatio||1;c.width=Math.max(300,rect.width*dpr);c.height=260*dpr;
+ const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);let w=c.width/dpr,h=260;
+ x.clearRect(0,0,w,h);const {p,r,d}=params(),vs=Array.from({length:d+1},(_,k)=>val(k,p,r)),max=Math.max(1,...vs),L=45,R=12,T=14,B=32,pw=w-L-R,ph=h-T-B;
+ x.font='11px Arial';x.strokeStyle='#e0e6f0';x.fillStyle='#5b6475';
+ for(let i=0;i<=4;i++){let y=T+ph*i/4;x.beginPath();x.moveTo(L,y);x.lineTo(w-R,y);x.stroke();x.textAlign='right';x.fillText(fmt(max*(1-i/4)),L-5,y+4)}
+ x.strokeStyle='#2457d6';x.lineWidth=3;x.beginPath();vs.forEach((v,k)=>{let xx=L+pw*k/d,yy=T+ph*(1-v/max);if(k===0)x.moveTo(xx,yy);else x.lineTo(xx,yy)});x.stroke();
+ let xx=L+pw*t/d,yy=T+ph*(1-val(t,p,r)/max);x.fillStyle='#e34d59';x.beginPath();x.arc(xx,yy,5,0,Math.PI*2);x.fill();
+ x.fillStyle='#172033';x.textAlign='center';x.fillText('Tiempo (t)',L+pw/2,h-7);
+}
+function update(){
+ let {p,r,d}=params();t=Math.min(t,d);$('nowt').textContent=`${t} / ${d}`;$('nowp').textContent=fmt(val(t,p,r));$('finalp').textContent=fmt(val(d,p,r));
+ $('formula').textContent=mode==='growth'?`Crecimiento: P(t) = P₀ × (1 + r)ᵗ = ${fmt(p)} × (1 + ${fmt(r)})ᵗ`:`Decrecimiento: P(t) = P₀ × (1 − r)ᵗ = ${fmt(p)} × (1 − ${fmt(r)})ᵗ`;
+ $('explain').textContent=mode==='growth'?`La población aumenta un ${fmt(r*100)} % en cada periodo.`:`La población disminuye un ${fmt(r*100)} % en cada periodo.`;
+ $('interpret').textContent=mode==='growth'?'En el crecimiento exponencial, la población aumenta cada periodo en proporción a la cantidad existente. Por eso la curva sube.':'En el decrecimiento exponencial, en cada periodo queda una fracción de la población anterior. Por eso la curva baja.';
+ let rows='';for(let k=0;k<=d;k++)rows+=`<tr${k===t?' style="font-weight:bold;background:#eef3ff"':''}><td>${k}</td><td>${mode==='growth'?`P₀ × (1 + r)${k?'^'+k:''}`:`P₀ × (1 − r)${k?'^'+k:''}`}</td><td>${fmt(val(k,p,r))}</td></tr>`;$('rows').innerHTML=rows;
+ bacteria();chart();
+}
+function stop(){if(timer){clearInterval(timer);timer=null}}
+$('growth').onclick=()=>{stop();mode='growth';t=0;$('growth').classList.add('active');$('decay').classList.remove('active');update()};
+$('decay').onclick=()=>{stop();mode='decay';t=0;$('decay').classList.add('active');$('growth').classList.remove('active');update()};
+['p0','rate','duration'].forEach(id=>$(id).addEventListener('input',()=>{stop();t=0;update()}));
+$('start').onclick=()=>{stop();if(t>=params().d)t=0;update();timer=setInterval(()=>{if(t>=params().d){stop();return}t++;update()},800)};
+$('pause').onclick=stop;$('reset').onclick=()=>{stop();t=0;update()};window.addEventListener('resize',chart);update();
+})();
+</script>
+</body></html>
